@@ -7,7 +7,11 @@
 ## Features
 
 - **Smart partial scanning** — streams as little as 16 KB first, escalates to 256 KB, then full download only as a last resort
-- **Parallel processing** — up to 6 concurrent stream workers and 3 channel workers
+- **Multi-Bot Architecture (Helper Bots)** — Routes tasks to specialized helper bots to eliminate cross-DC auth errors and mitigate `FLOOD_WAIT`s.
+- **MongoDB Persistent Queue** — Uses MongoDB to store pending message queues and bot statistics, preventing data loss during restarts and flood cooldowns.
+- **Intelligent Cooldowns** — Avoids severe `FLOOD_WAIT` penalties using minimum edit delays, exponential backoff, and periodic cooldowns.
+- **Automated Updates** — Remote updates by pulling from an upstream GitHub repository on bot restart.
+- **Parallel processing** — background queue processors for channels
 - **Resolution detection** — 240p through 2160p+
 - **Codec detection** — x264 / HEVC / AV1 / VP9 / MPEG4 with bit depth (e.g. `10bit`)
 - **HDR detection** — HDR and Dolby Vision flags from stream metadata
@@ -47,6 +51,7 @@ The template is fully customisable via the `CAPTION_TEMPLATE` environment variab
 - Python 3.10+
 - `ffprobe` (part of [FFmpeg](https://ffmpeg.org/)) — auto-installed on first run if missing
 - `mediainfo` — auto-installed on first run if missing
+- MongoDB Database (optional, but highly recommended for queue persistence)
 - Telegram API credentials from [my.telegram.org](https://my.telegram.org)
 - A bot token from [@BotFather](https://t.me/BotFather)
 - The bot must be an **admin** in every target channel (to edit captions)
@@ -78,6 +83,13 @@ API_HASH=your_api_hash
 BOT_TOKEN=your_bot_token
 ADMIN_ID=your_telegram_user_id
 ALLOWED_CHATS=-1001234567890,-1009876543210
+
+# New variables
+MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majority
+MONGO_DB_NAME=mediainfo_bot
+UPSTREAM_REPO=https://github.com/youruser/mediainfo-bot
+UPSTREAM_BRANCH=main
+HELPER_TOKENS=token1 token2 token3
 ```
 
 Full reference:
@@ -95,6 +107,11 @@ Full reference:
 | `GC_THRESHOLD_1` | Python GC generation 1 threshold | `5` |
 | `GC_THRESHOLD_2` | Python GC generation 2 threshold | `5` |
 | `CAPTION_TEMPLATE` | Custom HTML caption template (see above) | built-in |
+| `MONGO_URI` | MongoDB connection URI for persistent queues | — |
+| `MONGO_DB_NAME` | MongoDB database name | `mediainfo_bot` |
+| `UPSTREAM_REPO` | GitHub repository URL for auto-updating | — |
+| `UPSTREAM_BRANCH` | GitHub branch for auto-updating | `main` |
+| `HELPER_TOKENS` | Space-separated list of helper bot tokens | — |
 
 ### 4. Run
 
@@ -175,6 +192,7 @@ Temp files cleaned up
 | Command | Description |
 |---|---|
 | `/server` | Show CPU, RAM, and disk usage |
+| `/setup <chat_id>` | Add all helper bots as admins to the target channel |
 | `/restart` | Restart the bot process (`os.execv`) |
 | `/update` | `git pull` + `pip install -r requirements.txt` + restart |
 | `/shutdown` | Stop the scheduler and bot, then exit |
