@@ -984,7 +984,7 @@ async def stats_cmd(_, m):
     await m.reply_text(text, parse_mode=ParseMode.HTML)
 
 
-@app.on_message(filters.command("setup") & filters.user(ADMIN_ID))
+@app.on_message(filters.command("setup") & (filters.user(ADMIN_ID) | filters.chat(ALLOWED_CHATS)))
 async def setup_cmd(_, m):
     # Determine target chat ID
     if m.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL):
