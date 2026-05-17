@@ -76,6 +76,10 @@ async def setup_helpers(app: Client, chat_id: int) -> tuple[int, int, list[str]]
         if not bot:
             continue
         try:
+            # Force Pyrogram to resolve and cache the peer ID using get_users
+            if bot.username:
+                await app.get_users(bot.username)
+            
             await app.promote_chat_member(
                 chat_id=chat_id,
                 user_id=bot.username or bot.id,
