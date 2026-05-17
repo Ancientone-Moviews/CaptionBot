@@ -1039,7 +1039,7 @@ async def restart_cmd(_, m):
             # Force-pull from upstream (overwrite local changes)
             proc = await asyncio.create_subprocess_shell(
                 f'git fetch upstream {UPSTREAM_BRANCH} && '
-                f'git reset --hard upstream/{UPSTREAM_BRANCH}',
+                f'git reset --hard FETCH_HEAD',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
