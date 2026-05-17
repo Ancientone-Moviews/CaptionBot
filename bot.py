@@ -56,7 +56,13 @@ active_users: set = set()
 
 _last_edit:        dict[int, float] = {}
 channel_queues:    dict[int, asyncio.Queue] = {}      # per-channel async queues
-channel_workers:   dict[int, asyncio.Task]  = {}      # persistent drain workers
+channel_workers:   dict[int, list[asyncio.Task]]  = defaultdict(list)
+channel_edit_locks: dict[int, asyncio.Lock] = {}
+
+def _get_channel_lock(channel_id: int) -> asyncio.Lock:
+    if channel_id not in channel_edit_locks:
+        channel_edit_locks[channel_id] = asyncio.Lock()
+    return channel_edit_locks[channel_id]
 last_edit_time:    dict[int, float] = {}
 _channel_edit_cnt: dict[int, int]   = defaultdict(int)
 EDIT_DELAY = 10.0       # minimum seconds between edits (per channel)
@@ -761,12 +767,13 @@ def _get_channel_queue(channel_id: int) -> asyncio.Queue:
 
 
 def _ensure_channel_worker(channel_id: int):
-    """Ensure a persistent background worker exists for this channel."""
-    task = channel_workers.get(channel_id)
-    if task is None or task.done():
-        channel_workers[channel_id] = asyncio.create_task(
-            _channel_worker(channel_id)
-        )
+    """Ensure persistent background workers exist for this channel."""
+    tasks = channel_workers[channel_id]
+    tasks[:] = [t for t in tasks if not t.done()]
+    
+    while len(tasks) < 3:
+        task = asyncio.create_task(_channel_worker(channel_id))
+        tasks.append(task)
 
 
 async def _channel_worker(channel_id: int):
@@ -793,45 +800,28 @@ async def _channel_worker(channel_id: int):
             caption, file_path = await process_message(message)
 
             # --- 2. Enforce minimum edit delay with exponential backoff ---
-            now  = loop.time()
-            last = last_edit_time.get(channel_id, 0)
-            
-            current_delay = EDIT_DELAY * _backoff_multiplier
-            
-            if now - last < current_delay:
-                await asyncio.sleep(current_delay - (now - last))
+            lock = _get_channel_lock(channel_id)
+            async with lock:
+                now  = loop.time()
+                last = last_edit_time.get(channel_id, 0)
+                
+                current_delay = EDIT_DELAY * _backoff_multiplier
+                
+                if now - last < current_delay:
+                    await asyncio.sleep(current_delay - (now - last))
 
-            # --- 3. Periodic cooldown ---
-            _channel_edit_cnt[channel_id] += 1
-            if _channel_edit_cnt[channel_id] % COOLDOWN_EVERY == 0:
-                cooldown = random.uniform(COOLDOWN_MIN, COOLDOWN_MAX) * _backoff_multiplier
-                logger.info(f"Channel {channel_id}: cooldown {cooldown:.1f}s "
-                            f"({q.qsize()} queued)")
-                await asyncio.sleep(cooldown)
+                # --- 3. Periodic cooldown ---
+                _channel_edit_cnt[channel_id] += 1
+                if _channel_edit_cnt[channel_id] % COOLDOWN_EVERY == 0:
+                    cooldown = random.uniform(COOLDOWN_MIN, COOLDOWN_MAX) * _backoff_multiplier
+                    logger.info(f"Channel {channel_id}: cooldown {cooldown:.1f}s "
+                                f"({q.qsize()} queued)")
+                    await asyncio.sleep(cooldown)
 
-            # --- 4. Edit caption on Telegram ---
-            edited = False
-            try:
-                helper = get_random_helper()
-                client_to_use = helper if helper else app
-                await client_to_use.edit_message_caption(
-                    chat_id=channel_id,
-                    message_id=message.id,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML
-                )
-                last_edit_time[channel_id] = loop.time()
-                edited = True
-            except FloodWait as e:
-                wait = e.value
-                EDIT_DELAY = max(EDIT_DELAY, wait / 10 + 2)
-                _backoff_multiplier = min(10.0, _backoff_multiplier * 1.5)
-                logger.warning(f"FloodWait {wait}s on edit_caption ch={channel_id} "
-                               f"({q.qsize()} queued) | backoff={_backoff_multiplier:.1f}x")
-                await asyncio.sleep(wait + random.uniform(1, 3))
+                # --- 4. Edit caption on Telegram ---
+                edited = False
                 try:
-                    helper = get_random_helper()
-                    client_to_use = helper if helper else app
+                    client_to_use = get_next_client(app)
                     await client_to_use.edit_message_caption(
                         chat_id=channel_id,
                         message_id=message.id,
@@ -840,10 +830,27 @@ async def _channel_worker(channel_id: int):
                     )
                     last_edit_time[channel_id] = loop.time()
                     edited = True
-                except Exception as err:
-                    logger.error(f"Retry edit failed: {err}")
-            except Exception as e:
-                logger.error(f"Edit failed: {e}")
+                except FloodWait as e:
+                    wait = e.value
+                    EDIT_DELAY = max(EDIT_DELAY, wait / 10 + 2)
+                    _backoff_multiplier = min(10.0, _backoff_multiplier * 1.5)
+                    logger.warning(f"FloodWait {wait}s on edit_caption ch={channel_id} "
+                                   f"({q.qsize()} queued) | backoff={_backoff_multiplier:.1f}x")
+                    await asyncio.sleep(wait + random.uniform(1, 3))
+                    try:
+                        client_to_use = get_next_client(app)
+                        await client_to_use.edit_message_caption(
+                            chat_id=channel_id,
+                            message_id=message.id,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML
+                        )
+                        last_edit_time[channel_id] = loop.time()
+                        edited = True
+                    except Exception as err:
+                        logger.error(f"Retry edit failed: {err}")
+                except Exception as e:
+                    logger.error(f"Edit failed: {e}")
 
             # --- 5. Remove from DB only after successful edit ---
             if edited:
