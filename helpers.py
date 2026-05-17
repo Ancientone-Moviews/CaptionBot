@@ -21,7 +21,8 @@ def init_helpers():
                 api_id=API_ID,
                 api_hash=API_HASH,
                 bot_token=token,
-                in_memory=True
+                in_memory=True,
+                workers=16
             )
             helper_clients.append(client)
         except Exception as e:
@@ -47,11 +48,14 @@ async def stop_helpers():
         except:
             pass
 
-def get_random_helper() -> Client | None:
-    """Return a random active helper client, or None if none available."""
-    if not _started_helpers:
-        return None
-    return random.choice(_started_helpers)
+_client_idx = 0
+
+def get_next_client(app: Client) -> Client:
+    """Return the next client in a round-robin fashion, including the main app."""
+    global _client_idx
+    pool = [app] + _started_helpers
+    _client_idx = (_client_idx + 1) % len(pool)
+    return pool[_client_idx]
 
 async def setup_helpers(app: Client, chat_id: int) -> tuple[int, int, list[str]]:
     """

@@ -33,7 +33,7 @@ from helpers import (
     init_helpers,
     start_helpers,
     stop_helpers,
-    get_random_helper,
+    get_next_client,
     setup_helpers
 )
 
@@ -46,11 +46,11 @@ app = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    workers=8,
+    workers=16,
     sleep_threshold=30,
 )
 
-stream_semaphore  = asyncio.Semaphore(1)   # only 1 concurrent stream to reduce API load
+stream_semaphore  = asyncio.Semaphore(3)   # max 3 concurrent streams across all bots
 channel_semaphore = asyncio.Semaphore(1)
 active_users: set = set()
 
@@ -608,7 +608,8 @@ async def _stream_chunk(media, size: int, path: str) -> bool:
         written = 0
         async with stream_semaphore:
             async with aiopen(path, 'wb') as f:
-                async for chunk in app.stream_media(media):
+                client = get_next_client(app)
+                async for chunk in client.stream_media(media.file_id):
                     if not chunk:
                         break
                     remaining = size - written
@@ -707,7 +708,11 @@ async def process_message(message, progress_msg=None) -> tuple[str, Optional[str
 
         for attempt in range(3):
             try:
-                file_path = await asyncio.wait_for(message.download(), timeout=90)
+                client = get_next_client(app)
+                if client != app:
+                    file_path = await asyncio.wait_for(client.download_media(media.file_id), timeout=90)
+                else:
+                    file_path = await asyncio.wait_for(message.download(), timeout=90)
                 break
             except FloodWait as e:
                 wait = e.value
@@ -916,7 +921,11 @@ async def info_command(_, message):
     try:
         ok = await _stream_chunk(media, 8 * 1024 * 1024, tmp)
         if not ok:
-            tmp2 = await reply.download()
+            client = get_next_client(app)
+            if client != app:
+                tmp2 = await client.download_media(media.file_id)
+            else:
+                tmp2 = await reply.download()
             result = await _probe(tmp2)
             os.remove(tmp2)
         else:

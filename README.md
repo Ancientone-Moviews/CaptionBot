@@ -7,11 +7,11 @@
 ## Features
 
 - **Smart partial scanning** — streams as little as 16 KB first, escalates to 256 KB, then full download only as a last resort
-- **Multi-Bot Architecture (Helper Bots)** — Routes tasks to specialized helper bots to eliminate cross-DC auth errors and mitigate `FLOOD_WAIT`s.
+- **Multi-Bot Architecture (Helper Bots)** — Distributes tasks across the main bot and all helper bots in a strict round-robin sequence, maximizing throughput and eliminating `FLOOD_WAIT`s.
 - **MongoDB Persistent Queue** — Uses MongoDB to store pending message queues and bot statistics, preventing data loss during restarts and flood cooldowns.
 - **Intelligent Cooldowns** — Avoids severe `FLOOD_WAIT` penalties using minimum edit delays, exponential backoff, and periodic cooldowns.
 - **Automated Updates** — Remote updates by pulling from an upstream GitHub repository on bot restart.
-- **Parallel processing** — background queue processors for channels
+- **High Concurrency** — Processes up to 3 files simultaneously across the bot network, with 16 dedicated Pyrogram workers per bot for maximum asynchronous performance.
 - **Resolution detection** — 240p through 2160p+
 - **Codec detection** — x264 / HEVC / AV1 / VP9 / MPEG4 with bit depth (e.g. `10bit`)
 - **HDR detection** — HDR and Dolby Vision flags from stream metadata
