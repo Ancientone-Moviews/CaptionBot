@@ -13,7 +13,7 @@ import random
 from aiofiles import open as aiopen
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pyrogram import Client, filters
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatType
 from functools import lru_cache
 from typing import Optional
 from aiofiles.os import remove as aioremove
@@ -987,7 +987,7 @@ async def stats_cmd(_, m):
 @app.on_message(filters.command("setup") & filters.user(ADMIN_ID))
 async def setup_cmd(_, m):
     # Determine target chat ID
-    if m.chat.type in (filters.group, filters.supergroup, filters.channel):
+    if m.chat.type in (ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL):
         target_chat = m.chat.id
     elif len(m.command) > 1:
         try:
