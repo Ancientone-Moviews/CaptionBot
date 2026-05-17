@@ -78,7 +78,7 @@ async def setup_helpers(app: Client, chat_id: int) -> tuple[int, int, list[str]]
         try:
             await app.promote_chat_member(
                 chat_id=chat_id,
-                user_id=bot.id,
+                user_id=bot.username or bot.id,
                 privileges=privileges
             )
             success_count += 1
